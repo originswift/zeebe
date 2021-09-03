@@ -11,9 +11,11 @@ import static io.camunda.zeebe.broker.bootstrap.StartProcess.takeDuration;
 
 import io.camunda.zeebe.broker.Loggers;
 import io.camunda.zeebe.broker.system.monitoring.BrokerStepMetrics;
+import io.camunda.zeebe.util.sched.AsyncClosable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 
 public final class CloseProcess implements AutoCloseable {
@@ -56,7 +58,31 @@ public final class CloseProcess implements AutoCloseable {
         LOG.info(
             "Closing {} [{}/{}]: {}", name, index, closeableSteps.size(), closeableStep.getName());
         final long durationStepStarting =
-            takeDuration(() -> closeableStep.getClosingFunction().close());
+            takeDuration(
+                () -> {
+                  final AutoCloseable closeable = closeableStep.getClosingFunction();
+
+                  if (closeable instanceof AsyncClosable) {
+                    // TODO remove this temporary workaround after migration to async steps
+                    final var future = new CompletableFuture<Void>();
+
+                    ((AsyncClosable) closeable)
+                        .closeAsync()
+                        .onComplete(
+                            (nil, error) -> {
+                              if (error != null) {
+                                future.completeExceptionally(error);
+                              } else {
+                                future.complete(null);
+                              }
+                            });
+
+                    future.join();
+                    // TODO remove this temporary workaround after migration to async steps
+                  } else {
+                    closeableStep.getClosingFunction().close();
+                  }
+                });
         brokerStepMetrics.observeDurationForCloseStep(
             closeableStep.getName(), durationStepStarting);
         LOG.debug(

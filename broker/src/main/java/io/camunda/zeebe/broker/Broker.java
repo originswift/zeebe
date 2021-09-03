@@ -107,14 +107,12 @@ public final class Broker extends Actor {
         brokerContext.getDiagnosticContext(),
         () -> {
           if (!isClosed && startFuture != null) {
-            startFuture
-                .thenAccept(
-                    b -> {
-                      closeProcess.closeReverse();
-                      isClosed = true;
-                      LOG.info("Broker shut down.");
-                    })
-                .join();
+            startFuture.thenAccept(
+                b -> {
+                  closeProcess.closeReverse();
+                  isClosed = true;
+                  LOG.info("Broker shut down.");
+                });
           }
         });
   }

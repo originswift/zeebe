@@ -503,7 +503,9 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void startBroker(final int nodeId) {
-    final Broker broker = getBroker(nodeId).getStartFuture().join();
+    final var broker = getBroker(nodeId);
+    systemContexts.get(nodeId).getScheduler().submitActor(broker).join();
+    getBroker(nodeId).getStartFuture().join();
     final InetSocketAddress commandApi =
         broker.getConfig().getNetwork().getCommandApi().getAddress();
     waitUntilBrokerIsAddedToTopology(commandApi);

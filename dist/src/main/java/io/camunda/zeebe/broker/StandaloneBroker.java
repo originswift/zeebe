@@ -71,7 +71,7 @@ public class StandaloneBroker
 
     broker = new Broker(systemContext, springBrokerBridge);
 
-    broker.start();
+    systemContext.getScheduler().submitActor(broker).join();
   }
 
   @Override

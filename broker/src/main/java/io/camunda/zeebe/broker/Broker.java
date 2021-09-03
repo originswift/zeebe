@@ -46,6 +46,7 @@ import io.camunda.zeebe.util.VersionUtil;
 import io.camunda.zeebe.util.exception.UncheckedExecutionException;
 import io.camunda.zeebe.util.sched.Actor;
 import io.camunda.zeebe.util.sched.ActorScheduler;
+import io.camunda.zeebe.util.sched.future.ActorFuture;
 import io.netty.util.NetUtil;
 import java.io.File;
 import java.io.IOException;
@@ -55,7 +56,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 
-public final class Broker implements AutoCloseable {
+public final class Broker extends Actor {
 
   public static final Logger LOG = Loggers.SYSTEM_LOGGER;
 
@@ -90,14 +91,32 @@ public final class Broker implements AutoCloseable {
     partitionListeners.add(listener);
   }
 
-  public synchronized CompletableFuture<Broker> start() {
+  @Override
+  protected void onActorStarting() {
     if (startFuture == null) {
       logBrokerStart();
 
       startFuture = new CompletableFuture<>();
       LogUtil.doWithMDC(brokerContext.getDiagnosticContext(), this::internalStart);
     }
-    return startFuture;
+  }
+
+  @Override
+  protected void onActorClosing() {
+    LogUtil.doWithMDC(
+        brokerContext.getDiagnosticContext(),
+        () -> {
+          if (!isClosed && startFuture != null) {
+            startFuture
+                .thenAccept(
+                    b -> {
+                      closeProcess.closeReverse();
+                      isClosed = true;
+                      LOG.info("Broker shut down.");
+                    })
+                .join();
+          }
+        });
   }
 
   private void logBrokerStart() {
@@ -270,8 +289,8 @@ public final class Broker implements AutoCloseable {
     diskSpaceUsageListeners.forEach(diskSpaceUsageMonitor::addDiskUsageListener);
   }
 
-  private void scheduleActor(final Actor actor) {
-    brokerContext.getScheduler().submitActor(actor).join();
+  private ActorFuture<Void> scheduleActor(final Actor actor) {
+    return brokerContext.getScheduler().submitActor(actor);
   }
 
   private AutoCloseable monitoringServerStep(final BrokerInfo localBroker) {
@@ -361,24 +380,6 @@ public final class Broker implements AutoCloseable {
     return brokerContext.getBrokerConfiguration();
   }
 
-  @Override
-  public void close() {
-    LogUtil.doWithMDC(
-        brokerContext.getDiagnosticContext(),
-        () -> {
-          if (!isClosed && startFuture != null) {
-            startFuture
-                .thenAccept(
-                    b -> {
-                      closeProcess.closeReverse();
-                      isClosed = true;
-                      LOG.info("Broker shut down.");
-                    })
-                .join();
-          }
-        });
-  }
-
   public EmbeddedGatewayService getEmbeddedGatewayService() {
     return embeddedGatewayService;
   }
@@ -407,6 +408,10 @@ public final class Broker implements AutoCloseable {
 
   public PartitionManager getPartitionManager() {
     return partitionManager;
+  }
+
+  public CompletableFuture<Broker> getStartFuture() {
+    return startFuture;
   }
 
   @Deprecated // only used for test; temporary work around

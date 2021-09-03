@@ -71,7 +71,7 @@ public final class FileBasedSnapshotStoreFactory implements ReceivableSnapshotSt
             new SnapshotMetrics(Integer.toString(partitionId)),
             snapshotDirectory,
             pendingDirectory);
-    actorScheduler.submitActor(snapshotStore, SchedulingHints.ioBound()).join();
+    actorScheduler.submitActor(snapshotStore, SchedulingHints.ioBound());
     return snapshotStore;
   }
 

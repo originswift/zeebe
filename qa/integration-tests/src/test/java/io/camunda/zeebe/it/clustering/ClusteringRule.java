@@ -269,7 +269,9 @@ public final class ClusteringRule extends ExternalResource {
   private void waitUntilBrokersStarted()
       throws InterruptedException, TimeoutException, ExecutionException {
     final var brokerStartFutures =
-        brokers.values().parallelStream().map(Broker::start).toArray(CompletableFuture[]::new);
+        brokers.values().parallelStream()
+            .map(Broker::getStartFuture)
+            .toArray(CompletableFuture[]::new);
     CompletableFuture.allOf(brokerStartFutures).get(120, TimeUnit.SECONDS);
 
     partitionLatch.await(15, TimeUnit.SECONDS);
@@ -288,7 +290,7 @@ public final class ClusteringRule extends ExternalResource {
     new Thread(
             () -> {
               systemContext.getScheduler().start();
-              broker.start();
+              systemContext.getScheduler().submitActor(broker).join();
             })
         .start();
     return broker;
@@ -501,7 +503,7 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void startBroker(final int nodeId) {
-    final Broker broker = getBroker(nodeId).start().join();
+    final Broker broker = getBroker(nodeId).getStartFuture().join();
     final InetSocketAddress commandApi =
         broker.getConfig().getNetwork().getCommandApi().getAddress();
     waitUntilBrokerIsAddedToTopology(commandApi);

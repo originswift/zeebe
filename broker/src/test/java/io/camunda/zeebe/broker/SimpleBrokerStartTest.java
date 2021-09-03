@@ -87,7 +87,7 @@ public final class SimpleBrokerStartTest {
 
     // when
     systemContext.getScheduler().start();
-    broker.start().join();
+    systemContext.getScheduler().submitActor(broker).join();
 
     // then
     leaderLatch.await();

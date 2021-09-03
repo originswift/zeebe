@@ -221,7 +221,7 @@ public class EmbeddedBrokerRule extends ExternalResource {
     broker.addPartitionListener(new LeaderPartitionListener(latch));
 
     systemContext.getScheduler().start();
-    broker.start().join();
+    systemContext.getScheduler().submitActor(broker).join();
 
     try {
       final boolean hasLeaderPartition = latch.await(timeout.toMillis(), TimeUnit.MILLISECONDS);

@@ -234,7 +234,7 @@ public final class EmbeddedBrokerRule extends ExternalResource {
     }
 
     systemContext.getScheduler().start();
-    broker.start().join();
+    systemContext.getScheduler().submitActor(broker).join();
 
     try {
       latch.await(INSTALL_TIMEOUT, INSTALL_TIMEOUT_UNIT);

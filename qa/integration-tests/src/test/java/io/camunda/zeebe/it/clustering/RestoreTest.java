@@ -148,7 +148,7 @@ public final class RestoreTest {
 
     clusteringRule.stopBroker(1);
     // restart broker without waiting for the topology
-    clusteringRule.getBroker(0).start().join();
+    clusteringRule.getBroker(0).getStartFuture().join();
 
     // then
     Awaitility.await("New leader must be 2")

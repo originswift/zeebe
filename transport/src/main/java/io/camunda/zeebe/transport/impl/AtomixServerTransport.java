@@ -50,15 +50,19 @@ public class AtomixServerTransport extends Actor implements ServerTransport {
 
   @Override
   public void close() {
-    actor
-        .call(
+    // TODO remove this temporary workaround after migration to async steps
+    CompletableFuture.runAsync(
             () -> {
-              for (int partitionId : partitionsRequestMap.keySet()) {
-                removePartition(partitionId);
-              }
-              actor.close();
+              actor.call(
+                  () -> {
+                    for (final int partitionId : partitionsRequestMap.keySet()) {
+                      removePartition(partitionId);
+                    }
+                    actor.close();
+                  });
             })
         .join();
+    // TODO remove this temporary workaround after migration to async steps
   }
 
   @Override

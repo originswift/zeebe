@@ -64,20 +64,11 @@ public final class CloseProcess implements AutoCloseable {
 
                   if (closeable instanceof AsyncClosable) {
                     // TODO remove this temporary workaround after migration to async steps
-                    final var future = new CompletableFuture<Void>();
-
-                    ((AsyncClosable) closeable)
-                        .closeAsync()
-                        .onComplete(
-                            (nil, error) -> {
-                              if (error != null) {
-                                future.completeExceptionally(error);
-                              } else {
-                                future.complete(null);
-                              }
-                            });
-
-                    future.join();
+                    CompletableFuture.runAsync(
+                            () -> {
+                              ((AsyncClosable) closeable).closeAsync().join();
+                            })
+                        .join();
                     // TODO remove this temporary workaround after migration to async steps
                   } else {
                     closeableStep.getClosingFunction().close();

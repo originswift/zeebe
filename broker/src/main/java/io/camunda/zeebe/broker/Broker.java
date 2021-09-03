@@ -54,6 +54,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.agrona.LangUtil;
 import org.slf4j.Logger;
 
 public final class Broker extends Actor {
@@ -256,8 +257,19 @@ public final class Broker extends Actor {
     diskSpaceUsageListeners.add(commandHandler);
 
     return () -> {
-      commandHandler.close();
-      serverTransport.close();
+      // TODO remove this temporary workaround after migration to async steps
+      CompletableFuture.runAsync(
+              () -> {
+                commandHandler.close();
+                try {
+                  serverTransport.close();
+                } catch (final Exception e) {
+                  LangUtil.rethrowUnchecked(e);
+                }
+              })
+          .join();
+      // TODO remove this temporary workaround after migration to async steps});
+
       messagingService.stop().join();
     };
   }
@@ -296,7 +308,9 @@ public final class Broker extends Actor {
     springBrokerBridge.registerBrokerHealthCheckServiceSupplier(() -> healthCheckService);
     partitionListeners.add(healthCheckService);
     scheduleActor(healthCheckService);
-    return () -> healthCheckService.close();
+    // TODO remove this temporary workaround after migration to async steps
+    return () -> CompletableFuture.runAsync(healthCheckService::close).join();
+    // TODO remove this temporary workaround after migration to async steps});
   }
 
   private AutoCloseable diskSpaceMonitorStep(final DataCfg data) {
@@ -313,7 +327,9 @@ public final class Broker extends Actor {
     if (data.isDiskUsageMonitoringEnabled()) {
       scheduleActor(diskSpaceUsageMonitor);
       diskSpaceUsageListeners.forEach(l -> diskSpaceUsageMonitor.addDiskUsageListener(l));
-      return () -> diskSpaceUsageMonitor.close();
+      // TODO remove this temporary workaround after migration to async steps
+      return () -> CompletableFuture.runAsync(diskSpaceUsageMonitor::close).join();
+      // TODO remove this temporary workaround after migration to async steps});
     } else {
       LOG.info("Skipping start of disk space usage monitor, as it is disabled by configuration");
       return () -> {};

@@ -118,7 +118,13 @@ public final class BrokerClientImpl implements BrokerClient {
 
     LOG.debug("Closing gateway broker client ...");
 
-    doAndLogException(topologyManager::close);
+    doAndLogException(
+        () -> {
+          // TODO remove this temporary workaround after migration to async steps
+          CompletableFuture.runAsync(topologyManager::close).join();
+          // TODO remove this temporary workaround after migration to async steps});
+        });
+
     LOG.debug("topology manager closed");
 
     if (jobAvailableSubscription != null) {

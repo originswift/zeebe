@@ -37,6 +37,7 @@ import io.camunda.zeebe.broker.system.configuration.NetworkCfg;
 import io.camunda.zeebe.broker.system.configuration.SocketBindingCfg;
 import io.camunda.zeebe.broker.system.management.BrokerAdminService;
 import io.camunda.zeebe.broker.system.management.PartitionStatus;
+import io.camunda.zeebe.broker.system.monitoring.BrokerHealthCheckService;
 import io.camunda.zeebe.client.ZeebeClient;
 import io.camunda.zeebe.client.ZeebeClientBuilder;
 import io.camunda.zeebe.client.api.response.BrokerInfo;
@@ -111,8 +112,8 @@ public final class ClusteringRule extends ExternalResource {
   private final Consumer<BrokerCfg> brokerConfigurator;
   private final Consumer<GatewayCfg> gatewayConfigurator;
   private final Consumer<ZeebeClientBuilder> clientConfigurator;
-  private final Map<Integer, Broker> brokers;
   private final Map<Integer, BrokerCfg> brokerCfgs;
+  private final Map<Integer, BrokerStartupContext> brokerStartupContexts;
   private final List<Integer> partitionIds;
   private final String clusterName;
   private final ControlledActorClock controlledClock;
@@ -123,8 +124,6 @@ public final class ClusteringRule extends ExternalResource {
   private Gateway gateway;
   private CountDownLatch partitionLatch;
   private final Map<Integer, Leader> partitionLeader;
-  private final Map<Integer, SpringBrokerBridge> springBrokerBridge;
-  private final Map<Integer, SystemContext> systemContexts;
 
   public ClusteringRule() {
     this(3);
@@ -168,12 +167,10 @@ public final class ClusteringRule extends ExternalResource {
     this.clientConfigurator = clientConfigurator;
 
     controlledClock = new ControlledActorClock();
-    brokers = new HashMap<>();
+    brokerStartupContexts = new HashMap<>();
     brokerCfgs = new HashMap<>();
-    systemContexts = new HashMap<>();
     partitionLeader = new ConcurrentHashMap<>();
     logstreams = new ConcurrentHashMap<>();
-    springBrokerBridge = new HashMap<>();
 
     partitionIds =
         IntStream.range(START_PARTITION_ID, START_PARTITION_ID + partitionCount)
@@ -207,7 +204,7 @@ public final class ClusteringRule extends ExternalResource {
     partitionLatch = new CountDownLatch(partitionCount);
     // create brokers
     for (int nodeId = 0; nodeId < clusterSize; nodeId++) {
-      getBroker(nodeId);
+      getBrokerStartupContext(nodeId);
     }
 
     final var contactPoints =
@@ -247,61 +244,55 @@ public final class ClusteringRule extends ExternalResource {
   @Override
   protected void after() {
     LOG.debug("Closing ClusteringRule...");
-    brokers.values().parallelStream()
+    brokerStartupContexts.values().parallelStream()
         .forEach(
             b -> {
               try {
-                b.close();
+                b.stop();
               } catch (final Exception e) {
                 LOG.error("Failed to close broker: ", e);
               }
             });
-    brokers.clear();
+    brokerStartupContexts.clear();
     brokerCfgs.clear();
     logstreams.clear();
     partitionLeader.clear();
   }
 
+  public BrokerStartupContext getBrokerStartupContext(final int nodeId) {
+    return brokerStartupContexts.computeIfAbsent(nodeId, this::createBrokerStartupContext);
+  }
+
   public Broker getBroker(final int nodeId) {
-    return brokers.computeIfAbsent(nodeId, this::createBroker);
+    return getBrokerStartupContext(nodeId).getBroker();
   }
 
   private void waitUntilBrokersStarted()
       throws InterruptedException, TimeoutException, ExecutionException {
+
     final var brokerStartFutures =
-        brokers.values().parallelStream()
-            .map(Broker::getStartFuture)
+        brokerStartupContexts.values().parallelStream()
+            .map(BrokerStartupContext::getStartFuture)
             .toArray(CompletableFuture[]::new);
     CompletableFuture.allOf(brokerStartFutures).get(120, TimeUnit.SECONDS);
 
     partitionLatch.await(15, TimeUnit.SECONDS);
   }
 
-  private Broker createBroker(final int nodeId) {
-    final File brokerBase = getBrokerBase(nodeId);
-    final BrokerCfg brokerCfg = getBrokerCfg(nodeId);
-    final var systemContext =
-        new SystemContext(brokerCfg, brokerBase.getAbsolutePath(), controlledClock);
-    systemContexts.put(nodeId, systemContext);
+  private BrokerStartupContext createBrokerStartupContext(final int nodeId) {
 
-    final Broker broker = new Broker(systemContext, getSpringBrokerBridge(nodeId));
+    final var brokerStartupContext = new BrokerStartupContext(nodeId);
 
-    broker.addPartitionListener(new LeaderListener(partitionLatch, nodeId));
-    new Thread(
-            () -> {
-              systemContext.getScheduler().start();
-              systemContext.getScheduler().submitActor(broker).join();
-            })
-        .start();
-    return broker;
-  }
-
-  private SpringBrokerBridge getSpringBrokerBridge(final int nodeId) {
-    return springBrokerBridge.computeIfAbsent(nodeId, n -> new SpringBrokerBridge());
+    brokerStartupContext
+        .getBroker()
+        .addPartitionListener(new LeaderListener(partitionLatch, nodeId));
+    brokerStartupContext.start();
+    return brokerStartupContext;
   }
 
   public boolean isBrokerHealthy(final int nodeId) {
-    return getSpringBrokerBridge(nodeId)
+    return brokerStartupContexts
+        .get(nodeId)
         .getBrokerHealthCheckService()
         .orElseThrow()
         .isBrokerHealthy();
@@ -343,15 +334,6 @@ public final class ClusteringRule extends ExternalResource {
     assignSocketAddresses(brokerCfg);
 
     return brokerCfg;
-  }
-
-  private File getBrokerBase(final int nodeId) {
-    final var base = new File(temporaryFolder.getRoot(), String.valueOf(nodeId));
-    if (!base.exists()) {
-      base.mkdir();
-    }
-
-    return base;
   }
 
   private Gateway createGateway() {
@@ -418,9 +400,9 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   private void waitUntilBrokersInTopology() {
-
     final Set<InetSocketAddress> addresses =
-        brokers.values().stream()
+        brokerStartupContexts.values().stream()
+            .map(BrokerStartupContext::getBroker)
             .map(Broker::getConfig)
             .map(b -> b.getNetwork().getCommandApi().getAddress())
             .collect(Collectors.toSet());
@@ -503,11 +485,11 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void startBroker(final int nodeId) {
-    final var broker = getBroker(nodeId);
-    systemContexts.get(nodeId).getScheduler().submitActor(broker).join();
-    getBroker(nodeId).getStartFuture().join();
+    final var brokerStartupContext = getBrokerStartupContext(nodeId);
+    brokerStartupContext.start();
+    brokerStartupContext.getStartFuture().join();
     final InetSocketAddress commandApi =
-        broker.getConfig().getNetwork().getCommandApi().getAddress();
+        brokerStartupContext.getBroker().getConfig().getNetwork().getCommandApi().getAddress();
     waitUntilBrokerIsAddedToTopology(commandApi);
     waitForPartitionReplicationFactor();
   }
@@ -518,7 +500,7 @@ public final class ClusteringRule extends ExternalResource {
             .map(b -> b.getConfig().getCluster().getNodeId())
             .collect(Collectors.toList());
     brokers.forEach(this::stopBroker);
-    brokers.forEach(this::getBroker);
+    brokers.forEach(this::getBrokerStartupContext);
     try {
       waitUntilBrokersStarted();
       waitForPartitionReplicationFactor();
@@ -560,7 +542,9 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public Collection<Broker> getBrokers() {
-    return brokers.values();
+    return brokerStartupContexts.values().stream()
+        .map(BrokerStartupContext::getBroker)
+        .collect(Collectors.toList());
   }
 
   public InetSocketAddress[] getOtherBrokers(final InetSocketAddress address) {
@@ -584,7 +568,7 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void stepDown(final int nodeId, final int partitionId) {
-    stepDown(getBroker(nodeId), partitionId);
+    stepDown(getBrokerStartupContext(nodeId).getBroker(), partitionId);
   }
 
   public BrokerInfo awaitOtherLeader(final int partitionId, final int previousLeader) {
@@ -627,7 +611,7 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void stopBrokerAndAwaitNewLeader(final int nodeId) {
-    final Broker broker = brokers.get(nodeId);
+    final Broker broker = brokerStartupContexts.get(nodeId).getBroker();
     if (broker != null) {
       final InetSocketAddress socketAddress =
           broker.getConfig().getNetwork().getCommandApi().getAddress();
@@ -638,20 +622,16 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void stopBroker(final int nodeId) {
-    final Broker broker = brokers.remove(nodeId);
-    if (broker != null) {
+    final BrokerStartupContext brokerStartupContext = brokerStartupContexts.remove(nodeId);
+    if (brokerStartupContext != null) {
       final InetSocketAddress socketAddress =
-          broker.getConfig().getNetwork().getCommandApi().getAddress();
-      broker.close();
-      waitUntilBrokerIsRemovedFromTopology(socketAddress);
+          brokerStartupContext.getBroker().getConfig().getNetwork().getCommandApi().getAddress();
       try {
-        final var systemContext = systemContexts.remove(nodeId);
-        if (systemContext != null) {
-          systemContext.getScheduler().stop().get();
-        }
-      } catch (final InterruptedException | ExecutionException e) {
+        brokerStartupContext.stop();
+      } catch (final ExecutionException | InterruptedException e) {
         LangUtil.rethrowUnchecked(e);
       }
+      waitUntilBrokerIsRemovedFromTopology(socketAddress);
     }
   }
 
@@ -661,7 +641,7 @@ public final class ClusteringRule extends ExternalResource {
       return;
     }
 
-    final var broker = brokers.get(expectedLeader);
+    final var broker = brokerStartupContexts.get(expectedLeader).getBroker();
     final var atomix = broker.getClusterServices();
     final MemberId nodeId = atomix.getMembershipService().getLocalMember().id();
 
@@ -751,9 +731,10 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public List<Broker> getOtherBrokerObjects(final int leaderNodeId) {
-    return brokers.keySet().stream()
+    return brokerStartupContexts.keySet().stream()
         .filter(id -> id != leaderNodeId)
-        .map(brokers::get)
+        .map(brokerStartupContexts::get)
+        .map(BrokerStartupContext::getBroker)
         .collect(Collectors.toList());
   }
 
@@ -763,7 +744,7 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public SnapshotId waitForSnapshotAtBroker(final int nodeId) {
-    return waitForNewSnapshotAtBroker(getBroker(nodeId), null);
+    return waitForNewSnapshotAtBroker(getBrokerStartupContext(nodeId).getBroker(), null);
   }
 
   public SnapshotId waitForSnapshotAtBroker(final Broker broker) {
@@ -836,7 +817,7 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public Optional<SnapshotId> getSnapshot(final int brokerId) {
-    final var broker = getBroker(brokerId);
+    final var broker = getBrokerStartupContext(brokerId).getBroker();
     return getSnapshot(broker, 1);
   }
 
@@ -888,6 +869,69 @@ public final class ClusteringRule extends ExternalResource {
     @Override
     public ActorFuture<Void> onBecomingInactive(final int partitionId, final long term) {
       return CompletableActorFuture.completed(null);
+    }
+  }
+
+  private final class BrokerStartupContext {
+    private final SystemContext systemContext;
+    private final SpringBrokerBridge springBrokerBridge;
+    private final Broker broker;
+    private boolean started = false;
+
+    private BrokerStartupContext(final int nodeId) {
+      final File brokerBase = getBrokerBase(nodeId);
+      final BrokerCfg brokerCfg = getBrokerCfg(nodeId);
+      systemContext = new SystemContext(brokerCfg, brokerBase.getAbsolutePath(), controlledClock);
+
+      springBrokerBridge = new SpringBrokerBridge();
+
+      broker = new Broker(systemContext, springBrokerBridge);
+    }
+
+    private File getBrokerBase(final int nodeId) {
+      final var base = new File(temporaryFolder.getRoot(), String.valueOf(nodeId));
+      if (!base.exists()) {
+        base.mkdir();
+      }
+
+      return base;
+    }
+
+    public void start() {
+      if (!started) {
+        new Thread(
+                () -> {
+                  systemContext.getScheduler().start();
+                  systemContext.getScheduler().submitActor(broker).join();
+                })
+            .start();
+
+        started = true;
+      }
+    }
+
+    public void stop() throws ExecutionException, InterruptedException {
+      if (started) {
+        broker.close();
+        systemContext.getScheduler().stop().get();
+        started = false;
+      }
+    }
+
+    public Broker getBroker() {
+      return broker;
+    }
+
+    public CompletableFuture<Broker> getStartFuture() {
+      if (!started) {
+        start();
+      }
+
+      return broker.getStartFuture();
+    }
+
+    public Optional<BrokerHealthCheckService> getBrokerHealthCheckService() {
+      return springBrokerBridge.getBrokerHealthCheckService();
     }
   }
 }

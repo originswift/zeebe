@@ -66,7 +66,7 @@ public final class Broker extends Actor {
   private boolean isClosed = false;
 
   private ClusterServicesImpl clusterServices;
-  private CompletableFuture<Broker> startFuture;
+  private final CompletableFuture<Broker> startFuture = new CompletableFuture<>();
   private LeaderManagementRequestHandler managementRequestHandler;
   private CommandApiService commandHandler;
   private final ActorScheduler scheduler;
@@ -94,12 +94,9 @@ public final class Broker extends Actor {
 
   @Override
   protected void onActorStarting() {
-    if (startFuture == null) {
-      logBrokerStart();
+    logBrokerStart();
 
-      startFuture = new CompletableFuture<>();
-      LogUtil.doWithMDC(brokerContext.getDiagnosticContext(), this::internalStart);
-    }
+    LogUtil.doWithMDC(brokerContext.getDiagnosticContext(), this::internalStart);
   }
 
   @Override

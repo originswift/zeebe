@@ -7,6 +7,8 @@
  */
 package io.camunda.zeebe.broker;
 
+import static java.util.concurrent.CompletableFuture.runAsync;
+
 import io.atomix.cluster.AtomixCluster;
 import io.atomix.cluster.messaging.ManagedMessagingService;
 import io.atomix.cluster.messaging.MessagingConfig;
@@ -47,6 +49,7 @@ import io.camunda.zeebe.util.exception.UncheckedExecutionException;
 import io.camunda.zeebe.util.sched.Actor;
 import io.camunda.zeebe.util.sched.ActorScheduler;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
+import io.camunda.zeebe.util.sched.future.CompletableActorFuture;
 import io.netty.util.NetUtil;
 import java.io.File;
 import java.io.IOException;
@@ -255,7 +258,7 @@ public final class Broker extends Actor {
 
     return () -> {
       // TODO remove this temporary workaround after migration to async steps
-      CompletableFuture.runAsync(
+      runAsync(
               () -> {
                 commandHandler.close();
                 try {
@@ -297,7 +300,10 @@ public final class Broker extends Actor {
   }
 
   private ActorFuture<Void> scheduleActor(final Actor actor) {
-    return brokerContext.getScheduler().submitActor(actor);
+    // TODO remove this temporary workaround after migration to async steps
+    runAsync(() -> brokerContext.getScheduler().submitActor(actor).join()).join();
+    // TODO remove this temporary workaround after migration to async steps
+    return CompletableActorFuture.completed(null);
   }
 
   private AutoCloseable monitoringServerStep(final BrokerInfo localBroker) {
@@ -306,7 +312,7 @@ public final class Broker extends Actor {
     partitionListeners.add(healthCheckService);
     scheduleActor(healthCheckService);
     // TODO remove this temporary workaround after migration to async steps
-    return () -> CompletableFuture.runAsync(healthCheckService::close).join();
+    return () -> runAsync(healthCheckService::close).join();
     // TODO remove this temporary workaround after migration to async steps});
   }
 
@@ -325,7 +331,7 @@ public final class Broker extends Actor {
       scheduleActor(diskSpaceUsageMonitor);
       diskSpaceUsageListeners.forEach(l -> diskSpaceUsageMonitor.addDiskUsageListener(l));
       // TODO remove this temporary workaround after migration to async steps
-      return () -> CompletableFuture.runAsync(diskSpaceUsageMonitor::close).join();
+      return () -> runAsync(diskSpaceUsageMonitor::close).join();
       // TODO remove this temporary workaround after migration to async steps});
     } else {
       LOG.info("Skipping start of disk space usage monitor, as it is disabled by configuration");

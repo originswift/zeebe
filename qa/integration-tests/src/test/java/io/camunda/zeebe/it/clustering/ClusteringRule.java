@@ -286,7 +286,7 @@ public final class ClusteringRule extends ExternalResource {
     brokerStartupContext
         .getBroker()
         .addPartitionListener(new LeaderListener(partitionLatch, nodeId));
-    brokerStartupContext.start();
+    brokerStartupContext.startAsync();
     return brokerStartupContext;
   }
 
@@ -486,7 +486,7 @@ public final class ClusteringRule extends ExternalResource {
 
   public void startBroker(final int nodeId) {
     final var brokerStartupContext = getBrokerStartupContext(nodeId);
-    brokerStartupContext.start();
+    brokerStartupContext.startAsync();
     brokerStartupContext.getStartFuture().join();
     final InetSocketAddress commandApi =
         brokerStartupContext.getBroker().getConfig().getNetwork().getCommandApi().getAddress();
@@ -897,15 +897,10 @@ public final class ClusteringRule extends ExternalResource {
       return base;
     }
 
-    public void start() {
+    public void startAsync() {
       if (!started) {
-        new Thread(
-                () -> {
-                  systemContext.getScheduler().start();
-                  systemContext.getScheduler().submitActor(broker).join();
-                })
-            .start();
-
+        systemContext.getScheduler().start();
+        systemContext.getScheduler().submitActor(broker);
         started = true;
       }
     }
@@ -924,7 +919,7 @@ public final class ClusteringRule extends ExternalResource {
 
     public CompletableFuture<Broker> getStartFuture() {
       if (!started) {
-        start();
+        startAsync();
       }
 
       return broker.getStartFuture();

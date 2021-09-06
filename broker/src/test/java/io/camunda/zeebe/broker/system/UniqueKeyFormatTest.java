@@ -33,6 +33,7 @@ public final class UniqueKeyFormatTest {
   @Test
   public void shouldStartProcessInstanceAtNoneStartEvent() {
     // given
+    brokerRule.getBroker().getStartFuture().join();
     apiRule
         .partitionClient()
         .deploy(Bpmn.createExecutableProcess("process").startEvent("foo").endEvent().done());

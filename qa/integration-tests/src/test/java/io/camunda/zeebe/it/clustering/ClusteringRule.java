@@ -611,10 +611,10 @@ public final class ClusteringRule extends ExternalResource {
   }
 
   public void stopBrokerAndAwaitNewLeader(final int nodeId) {
-    final Broker broker = brokerStartupContexts.get(nodeId).getBroker();
-    if (broker != null) {
+    final BrokerStartupContext brokerStartupContext = brokerStartupContexts.remove(nodeId);
+    if (brokerStartupContext != null) {
       final InetSocketAddress socketAddress =
-          broker.getConfig().getNetwork().getCommandApi().getAddress();
+          brokerStartupContext.getBroker().getConfig().getNetwork().getCommandApi().getAddress();
       final List<Integer> brokersLeadingPartitions = getBrokersLeadingPartitions(socketAddress);
       stopBroker(nodeId);
       waitForNewLeaderOfPartitions(brokersLeadingPartitions, socketAddress);

@@ -125,7 +125,8 @@ public final class EngineProcessors {
         onJobsAvailableCallback,
         eventPublicationBehavior,
         maxFragmentSize,
-        writers);
+        writers,
+        eventTriggerBehavior);
 
     addIncidentProcessors(
         zeebeState,

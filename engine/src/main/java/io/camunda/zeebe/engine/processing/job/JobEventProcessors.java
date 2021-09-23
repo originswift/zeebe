@@ -7,6 +7,7 @@
  */
 package io.camunda.zeebe.engine.processing.job;
 
+import io.camunda.zeebe.engine.metrics.JobMetrics;
 import io.camunda.zeebe.engine.processing.bpmn.behavior.BpmnEventPublicationBehavior;
 import io.camunda.zeebe.engine.processing.common.EventHandle;
 import io.camunda.zeebe.engine.processing.common.EventTriggerBehavior;
@@ -29,6 +30,7 @@ public final class JobEventProcessors {
       final BpmnEventPublicationBehavior eventPublicationBehavior,
       final int maxRecordSize,
       final Writers writers,
+      final JobMetrics jobMetrics,
       final EventTriggerBehavior eventTriggerBehavior) {
 
     final var jobState = zeebeState.getJobState();
@@ -43,24 +45,27 @@ public final class JobEventProcessors {
     );
 
     typedRecordProcessors
-        .onCommand(ValueType.JOB, JobIntent.COMPLETE, new JobCompleteProcessor(zeebeState, eventHandle))
+        .onCommand(
+            ValueType.JOB, JobIntent.COMPLETE, new JobCompleteProcessor(zeebeState, jobMetrics, eventHandle))
         .onCommand(
             ValueType.JOB,
             JobIntent.FAIL,
-            new JobFailProcessor(zeebeState, zeebeState.getKeyGenerator()))
+            new JobFailProcessor(zeebeState, zeebeState.getKeyGenerator(), jobMetrics))
         .onCommand(
             ValueType.JOB,
             JobIntent.THROW_ERROR,
-            new JobThrowErrorProcessor(zeebeState, eventPublicationBehavior, keyGenerator))
-        .onCommand(ValueType.JOB, JobIntent.TIME_OUT, new JobTimeOutProcessor(zeebeState))
+            new JobThrowErrorProcessor(
+                zeebeState, eventPublicationBehavior, keyGenerator, jobMetrics))
+        .onCommand(
+            ValueType.JOB, JobIntent.TIME_OUT, new JobTimeOutProcessor(zeebeState, jobMetrics))
         .onCommand(
             ValueType.JOB, JobIntent.UPDATE_RETRIES, new JobUpdateRetriesProcessor(zeebeState))
-        .onCommand(ValueType.JOB, JobIntent.CANCEL, new JobCancelProcessor(zeebeState))
+        .onCommand(ValueType.JOB, JobIntent.CANCEL, new JobCancelProcessor(zeebeState, jobMetrics))
         .onCommand(
             ValueType.JOB_BATCH,
             JobBatchIntent.ACTIVATE,
             new JobBatchActivateProcessor(
-                writers, zeebeState, zeebeState.getKeyGenerator(), maxRecordSize))
+                writers, zeebeState, zeebeState.getKeyGenerator(), maxRecordSize, jobMetrics))
         .withListener(new JobTimeoutTrigger(jobState))
         .withListener(
             new StreamProcessorLifecycleAware() {

@@ -10,7 +10,6 @@ package io.camunda.zeebe.broker.system.partitions;
 import io.camunda.zeebe.db.ZeebeDb;
 import io.camunda.zeebe.snapshots.TransientSnapshot;
 import io.camunda.zeebe.util.sched.future.ActorFuture;
-import java.util.Optional;
 
 public interface StateController extends AutoCloseable {
   /**
@@ -21,7 +20,7 @@ public interface StateController extends AutoCloseable {
    * @param lowerBoundSnapshotPosition the lower bound snapshot position
    * @return a future
    */
-  ActorFuture<Optional<TransientSnapshot>> takeTransientSnapshot(long lowerBoundSnapshotPosition);
+  ActorFuture<TransientSnapshot> takeTransientSnapshot(long lowerBoundSnapshotPosition);
 
   /**
    * Recovers the state from the snapshot and opens the database

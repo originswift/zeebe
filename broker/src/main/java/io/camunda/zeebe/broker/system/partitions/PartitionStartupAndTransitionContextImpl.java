@@ -113,11 +113,6 @@ public class PartitionStartupAndTransitionContextImpl
     this.partitionProcessingState = partitionProcessingState;
   }
 
-  @Override
-  public PartitionContext getPartitionContext() {
-    return this;
-  }
-
   public PartitionAdminControl getPartitionAdminControl() {
     return new PartitionAdminControlImpl(
         () -> getPartitionContext().getStreamProcessor(),
@@ -170,44 +165,8 @@ public class PartitionStartupAndTransitionContextImpl
     return criticalComponentsHealthMonitor;
   }
 
-  @Override
   public void setComponentHealthMonitor(final HealthMonitor criticalComponentsHealthMonitor) {
     this.criticalComponentsHealthMonitor = criticalComponentsHealthMonitor;
-  }
-
-  @Override
-  public StateController getStateController() {
-    return stateController;
-  }
-
-  @Override
-  public LogDeletionService getLogDeletionService() {
-    return logDeletionService;
-  }
-
-  @Override
-  public void setLogDeletionService(final LogDeletionService logDeletionService) {
-    this.logDeletionService = logDeletionService;
-  }
-
-  @Override
-  public LogStream getLogStream() {
-    return logStream;
-  }
-
-  @Override
-  public void setLogStream(final LogStream logStream) {
-    this.logStream = logStream;
-  }
-
-  @Override
-  public ZeebeDb getZeebeDb() {
-    return zeebeDb;
-  }
-
-  @Override
-  public void setZeebeDb(final ZeebeDb zeebeDb) {
-    this.zeebeDb = zeebeDb;
   }
 
   @Override
@@ -221,26 +180,6 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
-  public AsyncSnapshotDirector getSnapshotDirector() {
-    return snapshotDirector;
-  }
-
-  @Override
-  public void setSnapshotDirector(final AsyncSnapshotDirector snapshotDirector) {
-    this.snapshotDirector = snapshotDirector;
-  }
-
-  @Override
-  public ScheduledTimer getMetricsTimer() {
-    return metricsTimer;
-  }
-
-  @Override
-  public void setMetricsTimer(final ScheduledTimer metricsTimer) {
-    this.metricsTimer = metricsTimer;
-  }
-
-  @Override
   public ExporterDirector getExporterDirector() {
     return exporterDirector;
   }
@@ -251,18 +190,29 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
-  public QueryService getQueryService() {
-    return queryService;
+  public PartitionMessagingService getMessagingService() {
+    return messagingService;
+  }
+
+  public boolean shouldExport() {
+    return !partitionProcessingState.isExportingPaused();
   }
 
   @Override
-  public void setQueryService(final QueryService queryService) {
-    this.queryService = queryService;
+  public Collection<ExporterDescriptor> getExportedDescriptors() {
+    return getExporterRepository().getExporters().values();
   }
 
-  @Override
-  public PartitionStartupAndTransitionContextImpl createTransitionContext() {
-    return this;
+  public AtomixLogStorage getLogStorage() {
+    return logStorage;
+  }
+
+  public void setLogStorage(final AtomixLogStorage logStorage) {
+    this.logStorage = logStorage;
+  }
+
+  public int getMaxFragmentSize() {
+    return maxFragmentSize;
   }
 
   @Override
@@ -284,21 +234,68 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
+  public CommandResponseWriter getCommandResponseWriter() {
+    return commandResponseWriterSupplier.get();
+  }
+
+  @Override
+  public Consumer<TypedRecord<?>> getOnProcessedListener() {
+    return onProcessedListenerSupplier.get();
+  }
+
+  @Override
   public TypedRecordProcessorFactory getStreamProcessorFactory() {
     return typedRecordProcessorsFactory::createTypedStreamProcessor;
   }
 
-  public AtomixLogStorage getLogStorage() {
-    return logStorage;
+  @Override
+  public LogStream getLogStream() {
+    return logStream;
   }
 
-  public void setLogStorage(final AtomixLogStorage logStorage) {
-    this.logStorage = logStorage;
+  @Override
+  public void setLogStream(final LogStream logStream) {
+    this.logStream = logStream;
+  }
+
+  @Override
+  public AsyncSnapshotDirector getSnapshotDirector() {
+    return snapshotDirector;
+  }
+
+  @Override
+  public StateController getStateController() {
+    return stateController;
+  }
+
+  @Override
+  public List<PartitionListener> getPartitionListeners() {
+    return partitionListeners;
+  }
+
+  @Override
+  public PartitionContext getPartitionContext() {
+    return this;
+  }
+
+  @Override
+  public void setSnapshotDirector(final AsyncSnapshotDirector snapshotDirector) {
+    this.snapshotDirector = snapshotDirector;
   }
 
   @Override
   public BrokerCfg getBrokerCfg() {
     return brokerCfg;
+  }
+
+  @Override
+  public QueryService getQueryService() {
+    return queryService;
+  }
+
+  @Override
+  public void setQueryService(final QueryService queryService) {
+    this.queryService = queryService;
   }
 
   @Override
@@ -312,11 +309,6 @@ public class PartitionStartupAndTransitionContextImpl
   }
 
   @Override
-  public PartitionMessagingService getMessagingService() {
-    return messagingService;
-  }
-
-  @Override
   public ConstructableSnapshotStore getConstructableSnapshotStore() {
     return constructableSnapshotStore;
   }
@@ -324,26 +316,6 @@ public class PartitionStartupAndTransitionContextImpl
   @Override
   public ReceivableSnapshotStore getReceivableSnapshotStore() {
     return receivableSnapshotStore;
-  }
-
-  @Override
-  public CommandResponseWriter getCommandResponseWriter() {
-    return commandResponseWriterSupplier.get();
-  }
-
-  @Override
-  public Consumer<TypedRecord<?>> getOnProcessedListener() {
-    return onProcessedListenerSupplier.get();
-  }
-
-  @Override
-  public ExporterRepository getExporterRepository() {
-    return exporterRepository;
-  }
-
-  @Override
-  public List<PartitionListener> getPartitionListeners() {
-    return partitionListeners;
   }
 
   @Override
@@ -356,16 +328,42 @@ public class PartitionStartupAndTransitionContextImpl
     this.actorControl = actorControl;
   }
 
-  public int getMaxFragmentSize() {
-    return maxFragmentSize;
-  }
-
-  public boolean shouldExport() {
-    return !partitionProcessingState.isExportingPaused();
+  @Override
+  public LogDeletionService getLogDeletionService() {
+    return logDeletionService;
   }
 
   @Override
-  public Collection<ExporterDescriptor> getExportedDescriptors() {
-    return getExporterRepository().getExporters().values();
+  public void setLogDeletionService(final LogDeletionService logDeletionService) {
+    this.logDeletionService = logDeletionService;
+  }
+
+  @Override
+  public ScheduledTimer getMetricsTimer() {
+    return metricsTimer;
+  }
+
+  @Override
+  public void setMetricsTimer(final ScheduledTimer metricsTimer) {
+    this.metricsTimer = metricsTimer;
+  }
+
+  @Override
+  public PartitionStartupAndTransitionContextImpl createTransitionContext() {
+    return this;
+  }
+
+  @Override
+  public ZeebeDb getZeebeDb() {
+    return zeebeDb;
+  }
+
+  @Override
+  public void setZeebeDb(final ZeebeDb zeebeDb) {
+    this.zeebeDb = zeebeDb;
+  }
+
+  public ExporterRepository getExporterRepository() {
+    return exporterRepository;
   }
 }

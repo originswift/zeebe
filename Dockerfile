@@ -15,7 +15,7 @@ RUN mkdir -p ${TMP_DIR} && \
     # already create volume dir to later have correct rights
     mkdir ${TMP_DIR}/data
 
-ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini ${TMP_DIR}/bin/tini
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini-arm64 ${TMP_DIR}/bin/tini
 COPY docker/utils/startup.sh ${TMP_DIR}/bin/startup.sh
 RUN chmod +x -R ${TMP_DIR}/bin/
 RUN chmod 0775 ${TMP_DIR} ${TMP_DIR}/data
